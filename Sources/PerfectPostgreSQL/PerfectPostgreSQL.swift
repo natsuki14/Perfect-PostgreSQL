@@ -57,6 +57,11 @@ public final class PGResult {
 		return res != nil
 	}
 
+	private static let connectionErrorMessage = "terminating connection due to administrator command"
+	func isConnectionError() -> Bool {
+		return status() == .fatalError && errorMessage().contains(PGResult.connectionErrorMessage)
+	}
+
 	/// close result object
 	public func close() {
 		clear()
@@ -408,14 +413,20 @@ public final class PGConnection {
 		defer { lock.unlock() }
 
 		if let result = toExec() {
-			return PGResult(result)
+			let pgResult = PGResult(result)
+			if !pgResult.isConnectionError() {
+				return pgResult
+			}
 		}
 
 		for _ in 0..<maxReconnect {
 			PQfinish(conn)
 			conn = PQconnectdb(connectInfo)
 			if let result = toExec() {
-				return PGResult(result)
+				let pgResult = PGResult(result)
+				if !pgResult.isConnectionError() {
+					return pgResult
+				}
 			}
 			Foundation.sleep(UInt32(reconnectInterval))
 		}
