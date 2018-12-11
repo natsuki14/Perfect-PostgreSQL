@@ -332,6 +332,9 @@ public final class PGResult {
 /// connection management class
 public final class PGConnection {
 
+	private let maxReconnect: Int
+	private let reconnectInterval: Double
+
 	/// Connection Status enum
 	public enum StatusType {
 		case ok
@@ -347,8 +350,10 @@ public final class PGConnection {
 	private var lock = NSRecursiveLock()
 
 	/// empty init
-	public init() {
 
+	public init(maxReconnect: Int = 0, reconnectInterval: Double = 1.0) {
+		self.maxReconnect = maxReconnect
+		self.reconnectInterval = reconnectInterval
 	}
 
 	deinit {
@@ -398,12 +403,30 @@ public final class PGConnection {
 		return String(validatingUTF8: PQerrorMessage(conn)) ?? ""
 	}
 
-	/// Submits a command to the server and waits for the result.
-	public func exec(statement: String) -> PGResult {
+	private func execRetry(_ toExec: () -> OpaquePointer?) -> PGResult {
 		lock.lock()
 		defer { lock.unlock() }
 
-		return PGResult(PQexec(conn, statement))
+		if let result = toExec() {
+			return PGResult(result)
+		}
+
+		for _ in 0..<maxReconnect {
+			PQfinish(conn)
+			conn = PQconnectdb(connectInfo)
+			if let result = toExec() {
+				return PGResult(result)
+			}
+			Foundation.sleep(UInt32(reconnectInterval))
+		}
+		return PGResult(nil)
+	}
+
+	/// Submits a command to the server and waits for the result.
+	public func exec(statement: String) -> PGResult {
+		return execRetry() {
+			return PQexec(conn, statement)
+		}
 	}
 
 	/// Sends data to the server during COPY_IN state.
@@ -487,11 +510,9 @@ public final class PGConnection {
 			}
 		}
 
-		lock.lock()
-		defer { lock.unlock() }
-
-		let r = PQexecParams(conn, statement, Int32(count), nil, values, lengths, formats, Int32(0))
-		return PGResult(r)
+		return execRetry() {
+			return PQexecParams(conn, statement, Int32(count), nil, values, lengths, formats, Int32(0))
+		}
 	}
 
 	/// Assert that the connection status is OK

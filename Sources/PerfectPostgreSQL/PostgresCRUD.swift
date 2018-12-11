@@ -495,7 +495,7 @@ public struct PostgresDatabaseConfiguration: DatabaseConfigurationProtocol {
 		}
 	}
 	
-	public init(database: String, host: String, port: Int? = nil, username: String? = nil, password: String? = nil) throws {
+	public init(database: String, host: String, port: Int? = nil, username: String? = nil, password: String? = nil, maxReconnect: Int = 0, reconnectInterval: Double = 1.0) throws {
 		var s = "host=\(host) dbname=\(database)"
 		if let p = port {
 			s += " port=\(p)"
@@ -506,10 +506,10 @@ public struct PostgresDatabaseConfiguration: DatabaseConfigurationProtocol {
 		if let p = password {
 			s += " password=\(p)"
 		}
-		try self.init(s)
+		try self.init(s, maxReconnect: maxReconnect, reconnectInterval: reconnectInterval)
 	}
-	public init(_ connectionInfo: String) throws {
-		let con = PGConnection()
+	public init(_ connectionInfo: String, maxReconnect: Int = 0, reconnectInterval: Double = 1.0) throws {
+		let con = PGConnection(maxReconnect: maxReconnect, reconnectInterval: reconnectInterval)
 		guard case .ok = con.connectdb(connectionInfo) else {
 			throw PostgresCRUDError("Could not connect. \(con.errorMessage())")
 		}
