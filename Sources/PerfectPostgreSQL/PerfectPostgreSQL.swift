@@ -370,9 +370,26 @@ public final class PGConnection {
 		lock.lock()
 		defer { lock.unlock() }
 
-		conn = PQconnectdb(info)
 		connectInfo = info
-		return status()
+
+		for i in 0...maxReconnect {
+			reconnectdb(wait: i != 0)
+			if status() == .ok {
+				return .ok
+			}
+		}
+		return .bad
+	}
+
+	private func reconnectdb(wait: Bool) {
+		if (wait) {
+			Foundation.sleep(UInt32(reconnectInterval))
+		}
+
+		if conn != nil {
+			PQfinish(conn)
+		}
+		conn = PQconnectdb(connectInfo)
 	}
 
 	/// Close db connection
@@ -412,24 +429,16 @@ public final class PGConnection {
 		lock.lock()
 		defer { lock.unlock() }
 
-		if let result = toExec() {
-			let pgResult = PGResult(result)
-			if !pgResult.isConnectionError() {
-				return pgResult
-			}
-		}
-
-		for _ in 0..<maxReconnect {
-			PQfinish(conn)
-			conn = PQconnectdb(connectInfo)
-			if let result = toExec() {
+		for i in 0...maxReconnect {
+			if conn != nil, let result = toExec() {
 				let pgResult = PGResult(result)
 				if !pgResult.isConnectionError() {
 					return pgResult
 				}
 			}
-			Foundation.sleep(UInt32(reconnectInterval))
+			reconnectdb(wait: i != 0)
 		}
+
 		return PGResult(nil)
 	}
 
